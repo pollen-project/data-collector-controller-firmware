@@ -1,5 +1,7 @@
+#include <cstdio>
 #include <string.h>
 #include "pico/stdlib.h"
+#include "pico/stdio.h"
 #include "hardware/uart.h"
 #include "hardware/irq.h"
 
@@ -72,6 +74,19 @@ void on_gps_rx() {
 }
 
 int main() {
+    stdio_init_all();
+
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+
+    while (true) {
+        gpio_put(PICO_DEFAULT_LED_PIN, true);
+        printf("Hello world\n");
+        sleep_ms(1000);
+        gpio_put(PICO_DEFAULT_LED_PIN, false);
+        sleep_ms(1000);
+    }
+
     gpio_init(GPIO_NBIOT_RST);
     gpio_set_dir(GPIO_NBIOT_RST, GPIO_OUT);
     gpio_put(GPIO_NBIOT_RST, true);

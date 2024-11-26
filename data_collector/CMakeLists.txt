@@ -16,6 +16,6 @@ add_executable(data_collector
 target_link_libraries(data_collector pico_stdlib)
 
 pico_enable_stdio_usb(data_collector 1)
-#pico_enable_stdio_uart(data_collector 1)
+pico_enable_stdio_uart(data_collector 0)
 
 pico_add_extra_outputs(data_collector)
