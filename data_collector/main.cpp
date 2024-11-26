@@ -1,5 +1,8 @@
 #include <cstdio>
+#include <iostream>
 #include <string.h>
+#include <vector>
+
 #include "pico/stdlib.h"
 #include "pico/stdio.h"
 #include "hardware/uart.h"
@@ -9,8 +12,8 @@
 
 #define UART_NBIOT_ID uart0
 #define UART_NBIOT_BAUD_RATE 115200
-#define UART_NBIOT_TX_PIN 8
-#define UART_NBIOT_RX_PIN 9
+#define UART_NBIOT_TX_PIN 0
+#define UART_NBIOT_RX_PIN 1
 #define UART_GPS_ID uart1
 #define UART_GPS_BAUD_RATE 9600
 #define UART_GPS_TX_PIN 8
@@ -21,6 +24,8 @@
 #define PARITY    UART_PARITY_NONE
 
 #define MAX_LINE_LENGTH 100
+
+using namespace std;
 
 void mqtt_open() {
     uart_puts(UART_NBIOT_ID, "AT+QMTOPEN=0,\"137.135.83.217\",1883\r\n");
@@ -34,31 +39,77 @@ void mqtt_pub() {
     uart_puts(UART_NBIOT_ID, "AT+QMTPUB=0,0,0,0,\"/pollen\"\r\n");
 }
 
+uint8_t nbiot_rx_line[MAX_LINE_LENGTH];
+uint8_t nbiot_rx_index = 0;
+
+vector<vector<string>> nbiot_cmds = {
+    {"AT+QIDNSCFG=0,\"8.8.8.8\"\r\n", "OK"},
+    {"AT+QMTOPEN=0,\"137.135.83.217\",1883\r\n", "+QMTOPEN: 0,0"},
+    {"AT+QMTCONN=0,\"pollen-bc660\"\r\n", "+QMTCONN: 0,0"},
+    {"AT+QMTPUB=0,0,0,0,\"/pollen\"\r\n", ">"},
+    {"test\u001A", ""}
+};
+uint8_t nbiot_cmd_index = 0;
+int8_t nbiot_sent_cmd_index = -1;
+
+void nbiot_send_next_cmd() {
+    if (nbiot_cmd_index >= nbiot_cmds.size()) {
+        return;
+    }
+    cout << "Sending command: " << nbiot_cmds[nbiot_cmd_index][0] << endl;
+    uart_puts(UART_NBIOT_ID, nbiot_cmds[nbiot_cmd_index][0].c_str());
+    // uart_puts(UART_NBIOT_ID, "\r\n");
+    nbiot_sent_cmd_index = nbiot_cmd_index;
+}
+
 // RX interrupt handler
 void on_nbiot_rx() {
-    uint8_t line[MAX_LINE_LENGTH];
-    uint8_t index = 0;
-
-    while (uart_is_readable(UART_GPS_ID)) {
-        uint8_t ch = uart_getc(UART_GPS_ID);
+    while (uart_is_readable(UART_NBIOT_ID)) {
+        uint8_t ch = uart_getc(UART_NBIOT_ID);
 
         if (ch == '\n' || ch == '\r') {
+            if (!nbiot_rx_index) {
+                return;
+            }
+
             // Check for newline (end of line)
-            line[index] = '\0';  // Null-terminate the string
+            nbiot_rx_line[nbiot_rx_index] = '\0';  // Null-terminate the string
 
-            if (strstr(reinterpret_cast<const char *>(line), "+QMTOPEN: 0,0") != nullptr) {
-                mqtt_connect();
+            std::cout << "Received line (" << static_cast<int>(nbiot_rx_index) << "): " << nbiot_rx_line << std::endl;
+
+            // if (nbiot_cmd_index > 0 && nbiot_rx_index == 2 && nbiot_rx_line[0] == 'O' && nbiot_rx_line[1] == 'K') {
+            //     nbiot_send_next_cmd();
+            // }
+
+            if (strncmp((char *)nbiot_rx_line, "+CEREG: 5", 9) == 0) {
+                nbiot_cmd_index = 0;
+                nbiot_send_next_cmd();
             }
 
-            if (strstr(reinterpret_cast<const char *>(line), "+QMTCONN: 0,0,0") != nullptr) {
-                mqtt_connect();
+            if (nbiot_sent_cmd_index > -1 && strncmp((char *)nbiot_rx_line,
+                nbiot_cmds[nbiot_sent_cmd_index][1].c_str(),
+                nbiot_cmds[nbiot_sent_cmd_index][1].length()) == 0)
+            {
+                nbiot_cmd_index++;
+                nbiot_send_next_cmd();
             }
 
+            // std::cout << line << std::endl;
+
+            // if (strstr(reinterpret_cast<const char *>(line), "+QMTOPEN: 0,0") != nullptr) {
+            //     mqtt_connect();
+            // }
+            //
+            // if (strstr(reinterpret_cast<const char *>(line), "+QMTCONN: 0,0,0") != nullptr) {
+            //     mqtt_connect();
+            // }
+
+            nbiot_rx_index = 0;
             return;
         }
 
-        if (index < MAX_LINE_LENGTH - 1) {
-            line[index++] = ch;  // Store the character in the buffer
+        if (nbiot_rx_index < MAX_LINE_LENGTH - 1) {
+            nbiot_rx_line[nbiot_rx_index++] = ch;  // Store the character in the buffer
         }
     }
 }
@@ -66,10 +117,11 @@ void on_nbiot_rx() {
 void on_gps_rx() {
     while (uart_is_readable(UART_GPS_ID)) {
         uint8_t ch = uart_getc(UART_GPS_ID);
+        std::cout << ch;
         // Can we send it back?
-        if (uart_is_writable(UART_NBIOT_ID)) {
-            uart_putc(UART_NBIOT_ID, ch);
-        }
+        // if (uart_is_writable(UART_NBIOT_ID)) {
+        //     uart_putc(UART_NBIOT_ID, ch);
+        // }
     }
 }
 
@@ -78,14 +130,11 @@ int main() {
 
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+    gpio_put(PICO_DEFAULT_LED_PIN, true);
 
-    while (true) {
-        gpio_put(PICO_DEFAULT_LED_PIN, true);
-        printf("Hello world\n");
-        sleep_ms(1000);
-        gpio_put(PICO_DEFAULT_LED_PIN, false);
-        sleep_ms(1000);
-    }
+    sleep_ms(1000);
+
+    std::cout << "Hello World" << std::endl;
 
     gpio_init(GPIO_NBIOT_RST);
     gpio_set_dir(GPIO_NBIOT_RST, GPIO_OUT);
@@ -119,14 +168,19 @@ int main() {
     uart_set_irq_enables(UART_GPS_ID, true, false);
 
     sleep_ms(1000);
+    std::cout << "Resetting NB-IoT board... ";
     gpio_put(GPIO_NBIOT_RST, false);
     sleep_ms(500);
     gpio_put(GPIO_NBIOT_RST, true);
+    std::cout << "done" << std::endl;
 
     sleep_ms(5000);
 
-    uart_puts(UART_NBIOT_ID, "ATE0\r\n");
-    mqtt_open();
+    // uart_puts(UART_NBIOT_ID, "ATE0\r\n");
+    // mqtt_open();
+
+    std::cout << "Sending ATI" << std::endl;
+    uart_puts(UART_NBIOT_ID, "ATI\r\n");
 
     // OK, all set up.
     // Lets send a basic string out, and then run a loop and wait for RX interrupts
