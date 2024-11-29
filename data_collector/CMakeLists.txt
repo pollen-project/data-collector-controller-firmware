@@ -9,11 +9,20 @@ set(CMAKE_CXX_STANDARD 17)
 
 pico_sdk_init()
 
+add_subdirectory(dht)
+add_subdirectory(ina219)
+
 add_executable(data_collector
         main.cpp
 )
 
-target_link_libraries(data_collector pico_stdlib)
+target_link_libraries(data_collector
+        dht
+        ina219
+        pico_stdlib
+        hardware_i2c
+        hardware_pio
+)
 
 pico_enable_stdio_usb(data_collector 1)
 pico_enable_stdio_uart(data_collector 0)
