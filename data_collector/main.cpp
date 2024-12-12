@@ -50,7 +50,7 @@
 #define WAKE_INTERVAL_MS 10000   // 10000
 #define WAKE_TIMEOUT_MS 120000
 #define REPORT_INTERVAL_MS (1 * 60 * 1000)
-#define GPS_INTERVAL 360     // 360
+#define GPS_INTERVAL 8640     // 1h: 360; 24h: 8640
 
 using namespace std;
 
